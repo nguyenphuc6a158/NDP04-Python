@@ -1,0 +1,7 @@
+fastapi
+faster-whisper
+httpx
+openai
+piper-tts
+python-dotenv
+uvicorn[standard]
