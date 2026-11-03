@@ -1,5 +1,6 @@
 import hmac
 import logging
+import subprocess
 import wave
 from io import BytesIO
 
@@ -43,6 +44,18 @@ def decode_wav(payload: bytes) -> AudioClip:
     return AudioClip(pcm=pcm, sample_rate=SAMPLE_RATE)
 
 
+def describe_error(exc: BaseException) -> list[str]:
+    details: list[str] = []
+    current: BaseException | None = exc
+    while current is not None:
+        line = f"{type(current).__name__}: {current}"
+        if isinstance(current, subprocess.CalledProcessError) and current.stderr:
+            line += f" | stderr: {str(current.stderr).strip()[-1500:]}"
+        details.append(line)
+        current = current.__cause__
+    return details
+
+
 @router.websocket("/ws/device")
 async def device_socket(websocket: WebSocket) -> None:
     await websocket.accept()
@@ -73,14 +86,20 @@ async def device_socket(websocket: WebSocket) -> None:
 
             try:
                 audio = decode_wav(payload)
-                response_audio = await run_in_threadpool(handler.handle, audio)
+                utterance = await run_in_threadpool(handler.recognize, audio)
+                await websocket.send_json(
+                    {"type": "transcript", "text": utterance.text}
+                )
+                reply = await run_in_threadpool(handler.reply, utterance)
+                await websocket.send_json({"type": "reply", "text": reply.text})
+                response_audio = await run_in_threadpool(handler.synthesize, reply)
             except (DomainError, ValueError) as exc:
                 await websocket.send_json({"type": "error", "message": str(exc)})
                 continue
-            except RuntimeError:
+            except Exception as exc:
                 logger.exception("Xử lý lượt thoại thất bại")
                 await websocket.send_json(
-                    {"type": "error", "message": "Máy chủ không xử lý được âm thanh này."}
+                    {"type": "error", "message": " <- ".join(describe_error(exc))}
                 )
                 continue
 

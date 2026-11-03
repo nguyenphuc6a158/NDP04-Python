@@ -97,11 +97,65 @@ class VoicePipelineTests(unittest.TestCase):
                 headers={"Authorization": "Bearer test-token"},
             ) as websocket:
                 websocket.send_bytes(make_wav())
+                self.assertEqual(
+                    websocket.receive_json(),
+                    {"type": "transcript", "text": "xin chào"},
+                )
+                self.assertEqual(
+                    websocket.receive_json(),
+                    {"type": "reply", "text": "chào bạn"},
+                )
                 self.assertEqual(websocket.receive_bytes(), b"reply-wav")
 
         self.assertEqual(
             calls,
             ["recognize:16000", "reply:xin chào", "synthesize:chào bạn"],
+        )
+
+    def test_websocket_returns_real_error_chain(self) -> None:
+        class Recognizer:
+            def transcribe(self, audio: AudioClip) -> Utterance:
+                return Utterance("xin chào")
+
+        class ReplyGenerator:
+            def generate_reply(self, utterance: Utterance) -> Utterance:
+                try:
+                    raise ValueError("429 no credits")
+                except ValueError as cause:
+                    raise RuntimeError("Không gọi được Gemini API") from cause
+
+        class Synthesizer:
+            def synthesize(self, utterance: Utterance) -> bytes:
+                return b""
+
+        application = FastAPI()
+        application.state.voice_handler = HandleVoiceInput(
+            Recognizer(),
+            ReplyGenerator(),
+            Synthesizer(),
+        )
+        application.state.device_api_token = "test-token"
+        application.include_router(device_router)
+
+        with TestClient(application) as client:
+            with client.websocket_connect(
+                "/ws/device",
+                headers={"Authorization": "Bearer test-token"},
+            ) as websocket:
+                websocket.send_bytes(make_wav())
+                self.assertEqual(
+                    websocket.receive_json(),
+                    {"type": "transcript", "text": "xin chào"},
+                )
+                error = websocket.receive_json()
+
+        self.assertEqual(
+            error,
+            {
+                "type": "error",
+                "message": "RuntimeError: Không gọi được Gemini API"
+                " <- ValueError: 429 no credits",
+            },
         )
 
 

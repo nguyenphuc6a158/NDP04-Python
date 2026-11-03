@@ -1,3 +1,6 @@
+import logging
+from threading import Thread
+
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
@@ -5,6 +8,7 @@ from app.container import Settings, build_voice_handler
 from app.interfaces.ws.device_socket import router as device_router
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,3 +34,4 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+Thread(target=app.state.voice_handler.warm_up, daemon=True).start()

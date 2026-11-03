@@ -13,28 +13,38 @@ class WhisperRecognizer:
         self._model: WhisperModel | None = None
         self._lock = Lock()
 
+    def _ensure_model(self) -> WhisperModel:
+        if self._model is None:
+            try:
+                self._model = WhisperModel(
+                    self._model_size,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=8,
+                )
+            except (OSError, RuntimeError) as exc:
+                raise RuntimeError(
+                    "Không thể tải model Whisper; kiểm tra kết nối và cấu hình model."
+                ) from exc
+        return self._model
+
+    def warm_up(self) -> None:
+        with self._lock:
+            self._ensure_model()
+
     def transcribe(self, audio: AudioClip) -> Utterance:
         samples = np.frombuffer(audio.pcm, dtype=np.int16).astype(np.float32)
         samples /= 32768.0
 
         with self._lock:
-            if self._model is None:
-                try:
-                    self._model = WhisperModel(
-                        self._model_size,
-                        device="cpu",
-                        compute_type="int8",
-                    )
-                except (OSError, RuntimeError) as exc:
-                    raise RuntimeError(
-                        "Không thể tải model Whisper; kiểm tra kết nối và cấu hình model."
-                    ) from exc
+            model = self._ensure_model()
 
             try:
-                segments, _ = self._model.transcribe(
+                segments, _ = model.transcribe(
                     samples,
                     language="vi",
                     vad_filter=True,
+                    beam_size=1,
                 )
                 text = " ".join(segment.text.strip() for segment in segments).strip()
             except (OSError, RuntimeError) as exc:

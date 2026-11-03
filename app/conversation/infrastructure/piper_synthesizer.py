@@ -24,6 +24,7 @@ class PiperSynthesizer:
                     ],
                     input=utterance.text,
                     text=True,
+                    encoding="utf-8",
                     capture_output=True,
                     check=True,
                     timeout=45,
